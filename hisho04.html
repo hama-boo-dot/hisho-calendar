@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>hisho04 - 秘書カレンダー（クイック追加・祝日・検索・繰り返し）</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+    background: #f4f6f8;
+    margin: 0; padding: 14px; color: #222;
+  }
+  h1 { text-align: center; font-size: 22px; margin: 0 0 12px; color: #2c3e50; }
+
+  /* === トップバー（クイック追加・検索） === */
+  .top-bar {
+    max-width: 1500px; margin: 0 auto 12px;
+    display: flex; gap: 8px; flex-wrap: wrap;
+    align-items: center; justify-content: center;
+  }
+  .top-bar input[type=text] {
+    padding: 8px 12px; border: 1px solid #bbb; border-radius: 6px;
+    font-size: 13px; flex: 1; min-width: 200px;
+  }
+  #quickAddInput { background: #fffbe6; border-color: #f1c40f; }
+  #searchInput   { background: #ebf5fb; border-color: #3498db; }
+  .top-bar button {
+    background: #f39c12; color: #fff; border: none; padding: 8px 14px;
+    border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .top-bar button:hover { background: #d68910; }
+  #searchCount { font-size: 12px; color: #555; margin-left: 4px; }
+
+  /* === 今日のダッシュボード === */
+  .dashboard {
+    max-width: 1500px; margin: 0 auto 14px;
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    padding: 12px 16px;
+    border-left: 5px solid #c0392b;
+  }
+  .dashboard h3 {
+    margin: 0 0 8px; font-size: 14px; color: #c0392b;
+  }
+  .dashboard .empty-msg { color: #888; font-size: 12px; }
+  .timeline {
+    display: flex; flex-wrap: wrap; gap: 8px;
+  }
+  .timeline-item {
+    background: #fdebd0; color: #7e5109;
+    border-radius: 6px; padding: 6px 10px;
+    font-size: 12px; border: 1px solid #f5cba7;
+    cursor: pointer;
+  }
+  .timeline-item:hover { background: #fad7a0; }
+  .timeline-item.allday { background: #fadbd8; color: #922b21; border-color: #f5b7b1; }
+  .timeline-item .time { font-weight: 600; margin-right: 4px; }
+
+  /* === コントロール === */
+  .controls {
+    text-align: center; margin-bottom: 12px;
+    display: flex; justify-content: center; align-items: center;
+    flex-wrap: wrap; gap: 6px;
+  }
+  .controls button {
+    background: #3498db; color: white; border: none;
+    padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+  }
+  .controls button:hover { background: #2980b9; }
+  .controls button:disabled { background: #bdc3c7; cursor: not-allowed; }
+  #signout_button { background: #95a5a6; }
+  #signout_button:hover { background: #7f8c8d; }
+  #reload_button  { background: #27ae60; }
+  #reload_button:hover { background: #229954; }
+  #add_button     { background: #e67e22; }
+  #add_button:hover { background: #d35400; }
+  .nav-group { display: inline-flex; align-items: center; margin-left: 8px; gap: 4px; }
+  .nav-group button { background: #34495e; padding: 7px 10px; }
+  .nav-group button:hover { background: #2c3e50; }
+  #status {
+    margin-left: 12px; font-size: 12px; color: #555;
+    flex-basis: 100%; text-align: center; margin-top: 4px;
+  }
+
+  /* === カレンダー === */
+  .calendar-container {
+    display: flex; gap: 14px; justify-content: center;
+    align-items: flex-start; flex-wrap: wrap;
+  }
+  .calendar {
+    background: #fff; border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    padding: 10px; flex: 1 1 0; min-width: 350px; max-width: 500px;
+  }
+  .calendar h2 {
+    text-align: center; margin: 0 0 8px;
+    font-size: 15px; color: #34495e; font-weight: 600;
+  }
+  .calendar.current h2 { color: #c0392b; }
+  table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+  th { padding: 5px 0; font-size: 12px; background: #ecf0f1; color: #2c3e50; border: 1px solid #dfe4e8; }
+  th.sun { color: #e74c3c; }
+  th.sat { color: #2980b9; }
+  td {
+    border: 1px solid #dfe4e8; vertical-align: top;
+    height: 84px; padding: 3px; font-size: 11px;
+    background: #fff; cursor: pointer; position: relative;
+  }
+  td.empty { background: #fafbfc; cursor: default; }
+  td.today { background: #fff7e6; border: 2px solid #f39c12; }
+  td.holiday { background: #fdf2f2; }
+  td:hover:not(.empty) { background: #f0f8ff; }
+  .date-num { font-weight: 600; font-size: 12px; color: #2c3e50; }
+  td.sun .date-num { color: #e74c3c; }
+  td.sat .date-num { color: #2980b9; }
+  td.holiday .date-num { color: #e74c3c; }
+  .holiday-name {
+    font-size: 9px; color: #c0392b; font-weight: 600;
+    line-height: 1.1; margin-top: 1px;
+  }
+  .events { margin-top: 2px; font-size: 10px; line-height: 1.3; }
+  .event-item {
+    background: #d6eaf8; color: #1b4f72;
+    border-radius: 3px; padding: 1px 3px; margin-top: 2px;
+    overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+    cursor: pointer; transition: filter 0.15s;
+  }
+  .event-item:hover { filter: brightness(0.92); }
+  .event-item.allday { background: #fadbd8; color: #922b21; }
+  .event-item.recurring::before { content: "🔁 "; }
+  .event-item.search-hit { box-shadow: 0 0 0 2px #f1c40f; }
+  .event-item.search-miss { opacity: 0.25; }
+  .footer-note { text-align: center; font-size: 11px; color: #888; margin-top: 12px; }
+
+  /* === モーダル === */
+  .modal-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.45); z-index: 100;
+    align-items: center; justify-content: center;
+  }
+  .modal-overlay.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 8px;
+    width: 90%; max-width: 500px; max-height: 90vh;
+    overflow-y: auto; padding: 20px;
+    box-shadow: 0 6px 24px rgba(0,0,0,0.25);
+  }
+  .modal h3 {
+    margin: 0 0 12px; color: #2c3e50; font-size: 17px;
+    border-bottom: 2px solid #ecf0f1; padding-bottom: 6px;
+  }
+  .modal .row { margin: 8px 0; font-size: 13px; }
+  .modal .row label {
+    display: block; font-weight: 600; color: #555;
+    margin-bottom: 3px; font-size: 12px;
+  }
+  .modal input[type="text"], .modal input[type="date"],
+  .modal input[type="time"], .modal textarea, .modal select {
+    width: 100%; padding: 6px 8px; border: 1px solid #ccc;
+    border-radius: 4px; font-size: 13px; font-family: inherit;
+  }
+  .modal textarea { resize: vertical; min-height: 60px; }
+  .modal .row.flex { display: flex; gap: 8px; }
+  .modal .row.flex > div { flex: 1; }
+  .modal .checkbox-row { display: flex; align-items: center; gap: 6px; }
+  .modal .checkbox-row input { width: auto; }
+  .modal-actions {
+    margin-top: 16px; display: flex; gap: 8px; justify-content: flex-end;
+  }
+  .modal-actions button {
+    padding: 7px 16px; border: none; border-radius: 5px; cursor: pointer; font-size: 13px;
+  }
+  .btn-primary { background: #3498db; color: #fff; }
+  .btn-primary:hover { background: #2980b9; }
+  .btn-success { background: #27ae60; color: #fff; }
+  .btn-success:hover { background: #229954; }
+  .btn-danger  { background: #e74c3c; color: #fff; }
+  .btn-danger:hover { background: #c0392b; }
+  .btn-secondary { background: #95a5a6; color: #fff; }
+  .btn-secondary:hover { background: #7f8c8d; }
+  .meta-info {
+    background: #f8f9fa; padding: 8px 10px; border-radius: 4px;
+    margin: 8px 0; font-size: 12px; color: #555;
+  }
+  .meta-info b { color: #2c3e50; }
+  .preview-box {
+    background: #fef9e7; border: 1px solid #f1c40f;
+    padding: 6px 10px; border-radius: 5px; font-size: 12px;
+    margin-top: 6px; display: none;
+  }
+  .preview-box.show { display: block; }
+</style>
+</head>
+<body>
+  <h1>hisho04 — 秘書カレンダー</h1>
+
+  <!-- 1. クイック追加 / 4. 検索 -->
+  <div class="top-bar">
+    <input type="text" id="quickAddInput" placeholder="🪄 例: 明日10時 ミーティング ／ 5/20 14-16時 健康診断 ／ 来週月曜 報告書">
+    <button id="quickAddSubmit">クイック追加</button>
+    <input type="text" id="searchInput" placeholder="🔍 予定を検索（タイトル・場所・説明）">
+    <span id="searchCount"></span>
+  </div>
+  <div class="preview-box" id="quickPreview"></div>
+
+  <!-- 3. 今日のダッシュボード -->
+  <div class="dashboard">
+    <h3>📌 今日の予定（<span id="todayDateLabel"></span>）</h3>
+    <div id="todayEvents" class="timeline"></div>
+  </div>
+
+  <div class="controls">
+    <button id="authorize_button" style="display:none;">Googleでサインイン</button>
+    <button id="signout_button"   style="display:none;">サインアウト</button>
+    <button id="reload_button"    style="display:none;">予定を再取得</button>
+    <button id="add_button"       style="display:none;">+ 予定を追加</button>
+    <span class="nav-group">
+      <button id="prev_button"  title="3か月前へ">← 前へ</button>
+      <button id="today_button" title="今日に戻る">今日</button>
+      <button id="next_button"  title="3か月先へ">先へ →</button>
+    </span>
+    <span id="status">ライブラリ読み込み中...</span>
+  </div>
+
+  <div class="calendar-container" id="calendarContainer"></div>
+  <div class="footer-note" id="footerNote"></div>
+
+  <!-- 詳細モーダル -->
+  <div class="modal-overlay" id="detailOverlay">
+    <div class="modal">
+      <h3 id="detailTitle">予定の詳細</h3>
+      <div class="meta-info" id="detailMeta"></div>
+      <div class="row">
+        <label>説明</label>
+        <div id="detailDescription" style="white-space:pre-wrap; font-size:13px; color:#444;"></div>
+      </div>
+      <div class="row" id="detailLocationRow" style="display:none;">
+        <label>場所</label>
+        <div id="detailLocation" style="font-size:13px; color:#444;"></div>
+      </div>
+      <div class="row" id="detailRecurrenceRow" style="display:none;">
+        <label>繰り返し</label>
+        <div id="detailRecurrence" style="font-size:13px; color:#444;"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-danger"  id="detailDelete">削除</button>
+        <button class="btn-primary" id="detailEdit">編集</button>
+        <button class="btn-secondary" id="detailClose">閉じる</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 追加・編集モーダル -->
+  <div class="modal-overlay" id="editOverlay">
+    <div class="modal">
+      <h3 id="editTitle">予定を追加</h3>
+      <input type="hidden" id="editEventId">
+      <div class="row">
+        <label>タイトル *</label>
+        <input type="text" id="editTitleInput" placeholder="例: 打ち合わせ">
+      </div>
+      <div class="row checkbox-row">
+        <input type="checkbox" id="editAllDay">
+        <label for="editAllDay" style="margin:0;">終日イベント</label>
+      </div>
+      <div class="row flex">
+        <div>
+          <label>開始日 *</label>
+          <input type="date" id="editStartDate">
+        </div>
+        <div id="editStartTimeWrap">
+          <label>開始時刻</label>
+          <input type="time" id="editStartTime">
+        </div>
+      </div>
+      <div class="row flex">
+        <div>
+          <label>終了日</label>
+          <input type="date" id="editEndDate">
+        </div>
+        <div id="editEndTimeWrap">
+          <label>終了時刻</label>
+          <input type="time" id="editEndTime">
+        </div>
+      </div>
+      <div class="row">
+        <label>場所</label>
+        <input type="text" id="editLocation" placeholder="例: 会議室A / オンライン">
+      </div>
+      <!-- 5. 繰り返し -->
+      <div class="row">
+        <label>繰り返し</label>
+        <select id="editRecurrence">
+          <option value="">なし</option>
+          <option value="DAILY">毎日</option>
+          <option value="WEEKLY">毎週同曜日</option>
+          <option value="MONTHLY">毎月同日</option>
+          <option value="YEARLY">毎年同月日</option>
+        </select>
+      </div>
+      <div class="row">
+        <label>説明・メモ</label>
+        <textarea id="editDescription" placeholder="詳細メモ"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="editCancel">キャンセル</button>
+        <button class="btn-success"   id="editSave">保存</button>
+      </div>
+    </div>
+  </div>
+
+<script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+
+<script>
+  // ========= 認証情報 =========
+  const CLIENT_ID = "260474228401-lcmfs06c43s13mg14erkaqhrq91seghv.apps.googleusercontent.com";
+  const API_KEY   = "AIzaSyC8TLedI_AhNEvHJH0a6vaR1v1qIsNT-2U";
+  const DISCOVERY_DOC = "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest";
+  const SCOPES = "https://www.googleapis.com/auth/calendar.events";
+
+  // ========= 状態 =========
+  let tokenClient, gapiInited = false, gisInited = false, isAuthed = false;
+  const today = new Date();
+  let displayBaseDate = new Date(today.getFullYear(), today.getMonth(), 1);
+  let eventsByDate = {};
+  let rawEvents   = {};
+  let holidays    = {}; // "YYYY-MM-DD" -> 祝日名
+  let searchKeyword = "";
+
+  const weekdays = ["日","月","火","水","木","金","土"];
+  const $ = (id) => document.getElementById(id);
+  const setStatus = (msg) => $("status").textContent = msg;
+  const pad = (n) => String(n).padStart(2, "0");
+  const dateKey = (y, m, d) => `${y}-${pad(m+1)}-${pad(d)}`;
+  const fmtDate = (d) => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+  const addDays = (yyyymmdd, days) => {
+    const d = new Date(yyyymmdd + "T00:00:00");
+    d.setDate(d.getDate() + days);
+    return fmtDate(d);
+  };
+
+  // ========= 2. 祝日読込 =========
+  async function loadHolidays() {
+    try {
+      const r = await fetch("https://holidays-jp.github.io/api/v1/date.json");
+      if (!r.ok) throw new Error(r.status);
+      holidays = await r.json();
+    } catch(e) {
+      console.warn("祝日取得失敗（オフライン？）", e);
+    }
+  }
+
+  // ========= 1. クイック追加（自然言語パース） =========
+  function parseQuickAdd(text) {
+    text = text.trim();
+    let date = null, startTime = null, endTime = null, allDay = true;
+
+    // 来週月曜・来週火曜...
+    const wkDayMap = {"日":0,"月":1,"火":2,"水":3,"木":4,"金":5,"土":6};
+    let m;
+    if ((m = text.match(/来週([日月火水木金土])曜?/))) {
+      const target = wkDayMap[m[1]];
+      const d = new Date(today);
+      const cur = d.getDay();
+      const diff = (target - cur + 7) % 7 || 7; // 来週なので最低+7
+      d.setDate(d.getDate() + diff);
+      date = d;
+      text = text.replace(m[0], "").trim();
+    } else if ((m = text.match(/今週([日月火水木金土])曜?/))) {
+      const target = wkDayMap[m[1]];
+      const d = new Date(today);
+      const cur = d.getDay();
+      const diff = (target - cur + 7) % 7;
+      d.setDate(d.getDate() + diff);
+      date = d;
+      text = text.replace(m[0], "").trim();
+    } else if (/明後日/.test(text)) {
+      date = new Date(today); date.setDate(date.getDate() + 2);
+      text = text.replace(/明後日/, "").trim();
+    } else if (/明日/.test(text)) {
+      date = new Date(today); date.setDate(date.getDate() + 1);
+      text = text.replace(/明日/, "").trim();
+    } else if (/今日/.test(text)) {
+      date = new Date(today);
+      text = text.replace(/今日/, "").trim();
+    }
+
+    // 日付パターン M/D, M月D日
+    if (!date && (m = text.match(/(\d{1,2})\/(\d{1,2})/))) {
+      date = new Date(today.getFullYear(), parseInt(m[1])-1, parseInt(m[2]));
+      text = text.replace(m[0], "").trim();
+    } else if (!date && (m = text.match(/(\d{1,2})月(\d{1,2})日?/))) {
+      date = new Date(today.getFullYear(), parseInt(m[1])-1, parseInt(m[2]));
+      text = text.replace(m[0], "").trim();
+    }
+
+    // 時刻パターン
+    // 14-16時 / 14:00-16:00 / 14時-16時
+    if ((m = text.match(/(\d{1,2}):(\d{2})\s*[-〜~]\s*(\d{1,2}):(\d{2})/))) {
+      startTime = `${pad(m[1])}:${m[2]}`;
+      endTime   = `${pad(m[3])}:${m[4]}`;
+      allDay = false;
+      text = text.replace(m[0], "").trim();
+    } else if ((m = text.match(/(\d{1,2})時(\d{1,2})?分?\s*[-〜~]\s*(\d{1,2})時(\d{1,2})?分?/))) {
+      startTime = `${pad(m[1])}:${m[2] ? pad(m[2]) : "00"}`;
+      endTime   = `${pad(m[3])}:${m[4] ? pad(m[4]) : "00"}`;
+      allDay = false;
+      text = text.replace(m[0], "").trim();
+    } else if ((m = text.match(/(\d{1,2})\s*[-〜~]\s*(\d{1,2})時/))) {
+      startTime = `${pad(m[1])}:00`;
+      endTime   = `${pad(m[2])}:00`;
+      allDay = false;
+      text = text.replace(m[0], "").trim();
+    } else if ((m = text.match(/(\d{1,2}):(\d{2})/))) {
+      startTime = `${pad(m[1])}:${m[2]}`;
+      const eh = parseInt(m[1]) + 1;
+      endTime = `${pad(eh > 23 ? 23 : eh)}:${m[2]}`;
+      allDay = false;
+      text = text.replace(m[0], "").trim();
+    } else if ((m = text.match(/(\d{1,2})時(\d{1,2})?分?/))) {
+      startTime = `${pad(m[1])}:${m[2] ? pad(m[2]) : "00"}`;
+      const eh = parseInt(m[1]) + 1;
+      endTime = `${pad(eh > 23 ? 23 : eh)}:${m[2] ? pad(m[2]) : "00"}`;
+      allDay = false;
+      text = text.replace(m[0], "").trim();
+    }
+
+    // @場所
+    let location = "";
+    if ((m = text.match(/[@＠]([^\s]+)/))) {
+      location = m[1];
+      text = text.replace(m[0], "").trim();
+    }
+
+    if (!date) date = new Date(today); // 日付なしなら今日
+    const title = text.trim();
+    return { date, startTime, endTime, allDay, location, title };
+  }
+
+  function showQuickPreview() {
+    const text = $("quickAddInput").value;
+    const box  = $("quickPreview");
+    if (!text.trim()) { box.classList.remove("show"); return; }
+    const p = parseQuickAdd(text);
+    if (!p.title) { box.classList.remove("show"); return; }
+    let line = `📅 ${fmtDate(p.date)} (${weekdays[p.date.getDay()]}) `;
+    if (!p.allDay) line += `${p.startTime}〜${p.endTime} `;
+    else line += `終日 `;
+    line += ` ｜ ${p.title}`;
+    if (p.location) line += ` @${p.location}`;
+    box.textContent = "🔍 解釈プレビュー: " + line;
+    box.classList.add("show");
+  }
+  $("quickAddInput").addEventListener("input", showQuickPreview);
+  $("quickAddInput").addEventListener("keydown", (e) => {
+    if (e.key === "Enter") $("quickAddSubmit").click();
+  });
+  $("quickAddSubmit").onclick = () => {
+    const text = $("quickAddInput").value.trim();
+    if (!text) return;
+    if (!isAuthed) { setStatus("先にサインインしてください"); return; }
+    const p = parseQuickAdd(text);
+    if (!p.title) { alert("タイトルが見つかりません。\n例: 「明日10時 打ち合わせ」"); return; }
+    // 編集ダイアログを開いて確認させる
+    openEditDialogPrefill(p);
+    $("quickAddInput").value = "";
+    $("quickPreview").classList.remove("show");
+  };
+
+  // ========= 4. 検索 =========
+  $("searchInput").addEventListener("input", () => {
+    searchKeyword = $("searchInput").value.trim().toLowerCase();
+    renderAllCalendars();
+    renderTodayDashboard();
+  });
+
+  // ========= ライブラリ初期化 =========
+  function gapiLoaded() { gapi.load("client", initGapiClient); }
+  async function initGapiClient() {
+    await gapi.client.init({ apiKey: API_KEY, discoveryDocs: [DISCOVERY_DOC] });
+    gapiInited = true; maybeEnableButtons();
+  }
+  function gisLoaded() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID, scope: SCOPES, callback: "",
+    });
+    gisInited = true; maybeEnableButtons();
+  }
+  async function maybeEnableButtons() {
+    if (gapiInited && gisInited) {
+      $("authorize_button").style.display = "inline-block";
+      setStatus("準備OK：「Googleでサインイン」を押してください");
+      await loadHolidays();
+      renderAllCalendars();
+      renderTodayDashboard();
+    }
+  }
+
+  // ========= サインイン/アウト =========
+  $("authorize_button").onclick = () => {
+    tokenClient.callback = async (resp) => {
+      if (resp.error) { setStatus("認証エラー: " + resp.error); return; }
+      isAuthed = true;
+      $("authorize_button").style.display = "none";
+      $("signout_button").style.display   = "inline-block";
+      $("reload_button").style.display    = "inline-block";
+      $("add_button").style.display       = "inline-block";
+      setStatus("サインイン成功。予定を取得中...");
+      await fetchEvents();
+    };
+    if (gapi.client.getToken() === null) {
+      tokenClient.requestAccessToken({ prompt: "consent" });
+    } else {
+      tokenClient.requestAccessToken({ prompt: "" });
+    }
+  };
+  $("signout_button").onclick = () => {
+    const token = gapi.client.getToken();
+    if (token !== null) {
+      google.accounts.oauth2.revoke(token.access_token);
+      gapi.client.setToken("");
+    }
+    isAuthed = false;
+    eventsByDate = {}; rawEvents = {};
+    renderAllCalendars();
+    renderTodayDashboard();
+    $("authorize_button").style.display = "inline-block";
+    $("signout_button").style.display   = "none";
+    $("reload_button").style.display    = "none";
+    $("add_button").style.display       = "none";
+    setStatus("サインアウトしました");
+  };
+  $("reload_button").onclick = async () => {
+    setStatus("予定を再取得中...");
+    await fetchEvents();
+  };
+  $("prev_button").onclick = () => {
+    displayBaseDate = new Date(displayBaseDate.getFullYear(), displayBaseDate.getMonth() - 3, 1);
+    renderAllCalendars();
+    if (isAuthed) fetchEvents();
+  };
+  $("next_button").onclick = () => {
+    displayBaseDate = new Date(displayBaseDate.getFullYear(), displayBaseDate.getMonth() + 3, 1);
+    renderAllCalendars();
+    if (isAuthed) fetchEvents();
+  };
+  $("today_button").onclick = () => {
+    displayBaseDate = new Date(today.getFullYear(), today.getMonth(), 1);
+    renderAllCalendars();
+    if (isAuthed) fetchEvents();
+  };
+  $("add_button").onclick = () => openAddDialog(today);
+
+  // ========= 予定取得 =========
+  async function fetchEvents() {
+    try {
+      const baseY = displayBaseDate.getFullYear();
+      const baseM = displayBaseDate.getMonth();
+      const timeMin = new Date(baseY, baseM - 1, 1, 0, 0, 0);
+      const timeMax = new Date(baseY, baseM + 2, 0, 23, 59, 59);
+      const response = await gapi.client.calendar.events.list({
+        calendarId: "primary",
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        showDeleted: false,
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: 1000,
+      });
+      eventsByDate = {}; rawEvents = {};
+      const items = response.result.items || [];
+      items.forEach(ev => {
+        rawEvents[ev.id] = ev;
+        const summary = ev.summary || "(無題)";
+        const isRecurring = !!ev.recurringEventId;
+        if (ev.start.date) {
+          const start = new Date(ev.start.date + "T00:00:00");
+          const end   = new Date(ev.end.date   + "T00:00:00");
+          for (let d = new Date(start); d < end; d.setDate(d.getDate()+1)) {
+            const k = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+            (eventsByDate[k] = eventsByDate[k] || []).push({
+              id: ev.id, title: summary, time: "", allDay: true, recurring: isRecurring,
+            });
+          }
+        } else {
+          const start = new Date(ev.start.dateTime);
+          const time = pad(start.getHours()) + ":" + pad(start.getMinutes());
+          const k = dateKey(start.getFullYear(), start.getMonth(), start.getDate());
+          (eventsByDate[k] = eventsByDate[k] || []).push({
+            id: ev.id, title: summary, time, allDay: false, recurring: isRecurring,
+          });
+        }
+      });
+      setStatus(`予定 ${items.length} 件を取得しました`);
+      renderAllCalendars();
+      renderTodayDashboard();
+    } catch (err) {
+      console.error(err);
+      setStatus("取得エラー: " + (err.result?.error?.message || err.message || "unknown"));
+    }
+  }
+
+  // ========= 検索ヒット判定 =========
+  function isSearchHit(eventObj) {
+    if (!searchKeyword) return null; // 検索OFF
+    const ev = rawEvents[eventObj.id];
+    if (!ev) return false;
+    const target = (
+      (ev.summary || "") + " " +
+      (ev.location || "") + " " +
+      (ev.description || "")
+    ).toLowerCase();
+    return target.includes(searchKeyword);
+  }
+
+  // ========= 描画 =========
+  function buildCalendar(year, month, isCurrent) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "calendar" + (isCurrent ? " current" : "");
+    const title = document.createElement("h2");
+    title.textContent = `${year}年 ${month + 1}月`;
+    wrapper.appendChild(title);
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    weekdays.forEach((w, i) => {
+      const th = document.createElement("th");
+      th.textContent = w;
+      if (i === 0) th.classList.add("sun");
+      if (i === 6) th.classList.add("sat");
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    let day = 1;
+    for (let row = 0; row < 6; row++) {
+      const tr = document.createElement("tr");
+      let rowHasDate = false;
+      for (let col = 0; col < 7; col++) {
+        const td = document.createElement("td");
+        if ((row === 0 && col < firstDay) || day > daysInMonth) {
+          td.classList.add("empty");
+        } else {
+          rowHasDate = true;
+          if (col === 0) td.classList.add("sun");
+          if (col === 6) td.classList.add("sat");
+          if (year === today.getFullYear() && month === today.getMonth() && day === today.getDate()) {
+            td.classList.add("today");
+          }
+          const k = dateKey(year, month, day);
+          if (holidays[k]) td.classList.add("holiday");
+
+          const thisYear = year, thisMonth = month, thisDay = day;
+          td.addEventListener("click", (e) => {
+            if (e.target.closest(".event-item")) return;
+            if (!isAuthed) { setStatus("先にサインインしてください"); return; }
+            openAddDialog(new Date(thisYear, thisMonth, thisDay));
+          });
+
+          const numDiv = document.createElement("div");
+          numDiv.className = "date-num";
+          numDiv.textContent = day;
+          td.appendChild(numDiv);
+
+          // 祝日名
+          if (holidays[k]) {
+            const h = document.createElement("div");
+            h.className = "holiday-name";
+            h.textContent = holidays[k];
+            td.appendChild(h);
+          }
+
+          const evWrap = document.createElement("div");
+          evWrap.className = "events";
+          if (eventsByDate[k]) {
+            eventsByDate[k].forEach(ev => {
+              const item = document.createElement("div");
+              const cls = ["event-item"];
+              if (ev.allDay) cls.push("allday");
+              if (ev.recurring) cls.push("recurring");
+              const hit = isSearchHit(ev);
+              if (hit === true)  cls.push("search-hit");
+              if (hit === false) cls.push("search-miss");
+              item.className = cls.join(" ");
+              const label = (ev.time ? ev.time + " " : "") + ev.title;
+              item.title = label;
+              item.textContent = label;
+              item.addEventListener("click", (e) => {
+                e.stopPropagation();
+                openDetailDialog(ev.id);
+              });
+              evWrap.appendChild(item);
+            });
+          }
+          td.appendChild(evWrap);
+          day++;
+        }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+      if (!rowHasDate && day > daysInMonth) break;
+    }
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    return wrapper;
+  }
+  function renderAllCalendars() {
+    const container = $("calendarContainer");
+    container.innerHTML = "";
+    const baseY = displayBaseDate.getFullYear();
+    const baseM = displayBaseDate.getMonth();
+    const months = [
+      { y: baseY, m: baseM - 1, current: false },
+      { y: baseY, m: baseM,     current: true  },
+      { y: baseY, m: baseM + 1, current: false },
+    ];
+    months.forEach(({y, m, current}) => {
+      const d = new Date(y, m, 1);
+      container.appendChild(buildCalendar(d.getFullYear(), d.getMonth(), current));
+    });
+    $("footerNote").textContent =
+      `本日: ${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日 (${weekdays[today.getDay()]})`;
+
+    // 検索ヒット数
+    if (searchKeyword) {
+      let hit = 0;
+      Object.values(eventsByDate).forEach(arr => arr.forEach(ev => {
+        if (isSearchHit(ev) === true) hit++;
+      }));
+      $("searchCount").textContent = `${hit} 件ヒット`;
+    } else {
+      $("searchCount").textContent = "";
+    }
+  }
+
+  // ========= 3. 今日のダッシュボード =========
+  function renderTodayDashboard() {
+    const tk = dateKey(today.getFullYear(), today.getMonth(), today.getDate());
+    $("todayDateLabel").textContent = `${today.getMonth()+1}/${today.getDate()} ${weekdays[today.getDay()]}` + (holidays[tk] ? ` ・${holidays[tk]}` : "");
+    const wrap = $("todayEvents");
+    wrap.innerHTML = "";
+    const items = (eventsByDate[tk] || []).slice().sort((a,b) => {
+      if (a.allDay && !b.allDay) return -1;
+      if (!a.allDay && b.allDay) return 1;
+      return (a.time || "").localeCompare(b.time || "");
+    });
+    if (items.length === 0) {
+      wrap.innerHTML = '<div class="empty-msg">今日の予定はありません ✨</div>';
+      return;
+    }
+    items.forEach(ev => {
+      const hit = isSearchHit(ev);
+      if (hit === false) return;
+      const div = document.createElement("div");
+      div.className = "timeline-item" + (ev.allDay ? " allday" : "");
+      div.innerHTML = (ev.allDay
+        ? `<span class="time">終日</span>`
+        : `<span class="time">${ev.time}</span>`) + ev.title;
+      div.onclick = () => openDetailDialog(ev.id);
+      wrap.appendChild(div);
+    });
+  }
+
+  // ========= 詳細モーダル =========
+  let currentDetailEventId = null;
+  function openDetailDialog(eventId) {
+    const ev = rawEvents[eventId];
+    if (!ev) return;
+    currentDetailEventId = eventId;
+    $("detailTitle").textContent = ev.summary || "(無題)";
+
+    let metaHtml = "";
+    if (ev.start.date) {
+      const s = ev.start.date, e = ev.end.date;
+      metaHtml = `<b>📅 終日:</b> ${s}` + (s !== e ? ` 〜 ${addDays(e, -1)}` : "");
+    } else {
+      const s = new Date(ev.start.dateTime);
+      const e = new Date(ev.end.dateTime);
+      metaHtml = `<b>📅 日時:</b> ${fmtDate(s)} ${pad(s.getHours())}:${pad(s.getMinutes())} 〜 ${fmtDate(e)} ${pad(e.getHours())}:${pad(e.getMinutes())}`;
+    }
+    $("detailMeta").innerHTML = metaHtml;
+    $("detailDescription").textContent = ev.description || "（説明なし）";
+    if (ev.location) {
+      $("detailLocationRow").style.display = "block";
+      $("detailLocation").textContent = ev.location;
+    } else {
+      $("detailLocationRow").style.display = "none";
+    }
+    if (ev.recurringEventId || (ev.recurrence && ev.recurrence.length)) {
+      $("detailRecurrenceRow").style.display = "block";
+      $("detailRecurrence").textContent = "🔁 繰り返し予定";
+    } else {
+      $("detailRecurrenceRow").style.display = "none";
+    }
+    $("detailOverlay").classList.add("show");
+  }
+  $("detailClose").onclick = () => $("detailOverlay").classList.remove("show");
+  $("detailOverlay").addEventListener("click", (e) => {
+    if (e.target.id === "detailOverlay") $("detailOverlay").classList.remove("show");
+  });
+  $("detailEdit").onclick = () => {
+    $("detailOverlay").classList.remove("show");
+    openEditDialog(currentDetailEventId);
+  };
+  $("detailDelete").onclick = async () => {
+    if (!confirm("この予定を削除しますか？\n（繰り返しの場合この回のみ削除されます）")) return;
+    try {
+      setStatus("削除中...");
+      await gapi.client.calendar.events.delete({
+        calendarId: "primary", eventId: currentDetailEventId,
+      });
+      $("detailOverlay").classList.remove("show");
+      setStatus("削除しました。再取得中...");
+      await fetchEvents();
+    } catch (err) {
+      console.error(err);
+      setStatus("削除エラー: " + (err.result?.error?.message || err.message));
+    }
+  };
+
+  // ========= 追加・編集モーダル =========
+  function openAddDialog(forDate) {
+    $("editTitle").textContent = "予定を追加";
+    $("editEventId").value = "";
+    $("editTitleInput").value = "";
+    $("editAllDay").checked = false;
+    $("editStartDate").value = fmtDate(forDate);
+    $("editEndDate").value   = fmtDate(forDate);
+    $("editStartTime").value = "10:00";
+    $("editEndTime").value   = "11:00";
+    $("editLocation").value  = "";
+    $("editRecurrence").value = "";
+    $("editDescription").value = "";
+    toggleAllDayInputs();
+    $("editOverlay").classList.add("show");
+    setTimeout(() => $("editTitleInput").focus(), 50);
+  }
+  function openEditDialogPrefill(p) {
+    $("editTitle").textContent = "予定を追加（クイック解析結果）";
+    $("editEventId").value = "";
+    $("editTitleInput").value = p.title;
+    $("editAllDay").checked = p.allDay;
+    $("editStartDate").value = fmtDate(p.date);
+    $("editEndDate").value   = fmtDate(p.date);
+    $("editStartTime").value = p.startTime || "10:00";
+    $("editEndTime").value   = p.endTime   || "11:00";
+    $("editLocation").value  = p.location || "";
+    $("editRecurrence").value = "";
+    $("editDescription").value = "";
+    toggleAllDayInputs();
+    $("editOverlay").classList.add("show");
+    setTimeout(() => $("editTitleInput").focus(), 50);
+  }
+  function openEditDialog(eventId) {
+    const ev = rawEvents[eventId];
+    if (!ev) return;
+    $("editTitle").textContent = "予定を編集";
+    $("editEventId").value = eventId;
+    $("editTitleInput").value = ev.summary || "";
+    $("editLocation").value = ev.location || "";
+    $("editDescription").value = ev.description || "";
+    if (ev.start.date) {
+      $("editAllDay").checked = true;
+      $("editStartDate").value = ev.start.date;
+      $("editEndDate").value = addDays(ev.end.date, -1);
+    } else {
+      $("editAllDay").checked = false;
+      const s = new Date(ev.start.dateTime);
+      const e = new Date(ev.end.dateTime);
+      $("editStartDate").value = fmtDate(s);
+      $("editEndDate").value   = fmtDate(e);
+      $("editStartTime").value = pad(s.getHours()) + ":" + pad(s.getMinutes());
+      $("editEndTime").value   = pad(e.getHours()) + ":" + pad(e.getMinutes());
+    }
+    // 繰り返しは編集時にデフォルトはなし（マスター予定の繰り返し設定はSingleInstance編集では変えないため）
+    $("editRecurrence").value = "";
+    toggleAllDayInputs();
+    $("editOverlay").classList.add("show");
+  }
+  $("editAllDay").onchange = () => toggleAllDayInputs();
+  function toggleAllDayInputs() {
+    const isAllDay = $("editAllDay").checked;
+    $("editStartTimeWrap").style.display = isAllDay ? "none" : "block";
+    $("editEndTimeWrap").style.display   = isAllDay ? "none" : "block";
+  }
+  $("editCancel").onclick = () => $("editOverlay").classList.remove("show");
+  $("editOverlay").addEventListener("click", (e) => {
+    if (e.target.id === "editOverlay") $("editOverlay").classList.remove("show");
+  });
+  $("editSave").onclick = async () => {
+    const summary = $("editTitleInput").value.trim();
+    if (!summary) { alert("タイトルを入力してください"); return; }
+    const isAllDay = $("editAllDay").checked;
+    const sd = $("editStartDate").value;
+    const ed = $("editEndDate").value || sd;
+    if (!sd) { alert("開始日を入力してください"); return; }
+
+    const resource = {
+      summary,
+      location: $("editLocation").value.trim() || undefined,
+      description: $("editDescription").value.trim() || undefined,
+    };
+    if (isAllDay) {
+      resource.start = { date: sd };
+      resource.end   = { date: addDays(ed, 1) };
+    } else {
+      const st = $("editStartTime").value || "00:00";
+      const et = $("editEndTime").value   || "01:00";
+      resource.start = { dateTime: new Date(`${sd}T${st}:00`).toISOString() };
+      resource.end   = { dateTime: new Date(`${ed}T${et}:00`).toISOString() };
+    }
+    // 繰り返し
+    const freq = $("editRecurrence").value;
+    if (freq) resource.recurrence = [`RRULE:FREQ=${freq}`];
+
+    const eventId = $("editEventId").value;
+    try {
+      setStatus(eventId ? "更新中..." : "追加中...");
+      if (eventId) {
+        await gapi.client.calendar.events.update({
+          calendarId: "primary", eventId, resource,
+        });
+      } else {
+        await gapi.client.calendar.events.insert({
+          calendarId: "primary", resource,
+        });
+      }
+      $("editOverlay").classList.remove("show");
+      setStatus("保存完了。再取得中...");
+      await fetchEvents();
+    } catch (err) {
+      console.error(err);
+      setStatus("保存エラー: " + (err.result?.error?.message || err.message));
+    }
+  };
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      $("detailOverlay").classList.remove("show");
+      $("editOverlay").classList.remove("show");
+    }
+  });
+</script>
+</body>
+</html>

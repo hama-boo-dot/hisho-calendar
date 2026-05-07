@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>hisho02 - 3か月カレンダー（Google連携版）</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Segoe UI", "Yu Gothic UI", "Meiryo", sans-serif;
+    background: #f4f6f8;
+    margin: 0;
+    padding: 20px;
+    color: #222;
+  }
+  h1 {
+    text-align: center;
+    font-size: 22px;
+    margin: 0 0 12px;
+    color: #2c3e50;
+  }
+  .controls {
+    text-align: center;
+    margin-bottom: 18px;
+  }
+  .controls button {
+    background: #3498db;
+    color: white;
+    border: none;
+    padding: 8px 16px;
+    margin: 0 4px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .controls button:hover { background: #2980b9; }
+  .controls button:disabled { background: #bdc3c7; cursor: not-allowed; }
+  #signout_button { background: #95a5a6; }
+  #signout_button:hover { background: #7f8c8d; }
+  #reload_button { background: #27ae60; }
+  #reload_button:hover { background: #229954; }
+  #status {
+    margin-left: 10px;
+    font-size: 12px;
+    color: #555;
+  }
+  .calendar-container {
+    display: flex;
+    gap: 16px;
+    justify-content: center;
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .calendar {
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+    padding: 12px;
+    flex: 1 1 0;
+    min-width: 360px;
+    max-width: 520px;
+  }
+  .calendar h2 {
+    text-align: center;
+    margin: 0 0 10px;
+    font-size: 16px;
+    color: #34495e;
+    font-weight: 600;
+  }
+  .calendar.current h2 { color: #c0392b; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    table-layout: fixed;
+  }
+  th {
+    padding: 6px 0;
+    font-size: 12px;
+    background: #ecf0f1;
+    color: #2c3e50;
+    border: 1px solid #dfe4e8;
+  }
+  th.sun { color: #e74c3c; }
+  th.sat { color: #2980b9; }
+  td {
+    border: 1px solid #dfe4e8;
+    vertical-align: top;
+    height: 80px;
+    padding: 4px;
+    font-size: 12px;
+    background: #fff;
+  }
+  td.empty { background: #fafbfc; }
+  td.today {
+    background: #fff7e6;
+    border: 2px solid #f39c12;
+  }
+  .date-num {
+    font-weight: 600;
+    font-size: 13px;
+    color: #2c3e50;
+  }
+  td.sun .date-num { color: #e74c3c; }
+  td.sat .date-num { color: #2980b9; }
+  .events {
+    margin-top: 3px;
+    font-size: 10px;
+    line-height: 1.3;
+    color: #555;
+  }
+  .event-item {
+    background: #d6eaf8;
+    color: #1b4f72;
+    border-radius: 3px;
+    padding: 1px 3px;
+    margin-top: 2px;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    cursor: default;
+  }
+  .event-item.allday {
+    background: #fadbd8;
+    color: #922b21;
+  }
+  .footer-note {
+    text-align: center;
+    font-size: 11px;
+    color: #888;
+    margin-top: 16px;
+  }
+</style>
+</head>
+<body>
+  <h1>hisho02 — 3か月カレンダー（Google連携版）</h1>
+
+  <div class="controls">
+    <button id="authorize_button" style="display:none;">Googleでサインイン</button>
+    <button id="signout_button"  style="display:none;">サインアウト</button>
+    <button id="reload_button"   style="display:none;">予定を再取得</button>
+    <span id="status">ライブラリ読み込み中...</span>
+  </div>
+
+  <div class="calendar-container" id="calendarContainer"></div>
+  <div class="footer-note" id="footerNote"></div>
+
+<!-- Google API クライアント -->
+<script async defer src="https://apis.google.com/js/api.js" onload="gapiLoaded()"></script>
+<!-- Google Identity Services -->
+<script async defer src="https://accounts.google.com/gsi/client" onload="gisLoaded()"></script>
+
+<script>
+  // ========= 認証情報（Cloud Consoleで取得した値） =========
+  const CLIENT_ID = "260474228401-lcmfs06c43s13mg14erkaqhrq91seghv.apps.googleusercontent.com";
+  const API_KEY   = "AIzaSyC8TLedI_AhNEvHJH0a6vaR1v1qIsNT-2U";
+  const DISCOVERY_DOC = "https://www.googleapis.com/discovery/v1/apis/calendar/v3/rest";
+  const SCOPES = "https://www.googleapis.com/auth/calendar.readonly";
+
+  // ========= 状態管理 =========
+  let tokenClient;
+  let gapiInited = false;
+  let gisInited  = false;
+  let events = {}; // "YYYY-MM-DD" -> [{title, time, allDay}]
+
+  const today = new Date();
+  const baseYear  = today.getFullYear();
+  const baseMonth = today.getMonth();
+
+  const weekdays = ["日","月","火","水","木","金","土"];
+  const $ = (id) => document.getElementById(id);
+
+  function setStatus(msg) { $("status").textContent = msg; }
+  function pad(n) { return String(n).padStart(2, "0"); }
+  function dateKey(y, m, d) { return `${y}-${pad(m+1)}-${pad(d)}`; }
+
+  // ========= ライブラリ読込み =========
+  function gapiLoaded() {
+    gapi.load("client", initGapiClient);
+  }
+  async function initGapiClient() {
+    await gapi.client.init({
+      apiKey: API_KEY,
+      discoveryDocs: [DISCOVERY_DOC],
+    });
+    gapiInited = true;
+    maybeEnableButtons();
+  }
+  function gisLoaded() {
+    tokenClient = google.accounts.oauth2.initTokenClient({
+      client_id: CLIENT_ID,
+      scope: SCOPES,
+      callback: "", // 後で動的にセット
+    });
+    gisInited = true;
+    maybeEnableButtons();
+  }
+  function maybeEnableButtons() {
+    if (gapiInited && gisInited) {
+      $("authorize_button").style.display = "inline-block";
+      setStatus("準備OK：「Googleでサインイン」を押してください");
+      // とりあえず空のカレンダーを表示
+      renderAllCalendars();
+    }
+  }
+
+  // ========= サインイン処理 =========
+  $("authorize_button").onclick = () => {
+    tokenClient.callback = async (resp) => {
+      if (resp.error !== undefined) {
+        setStatus("認証エラー: " + resp.error);
+        return;
+      }
+      $("authorize_button").style.display = "none";
+      $("signout_button").style.display   = "inline-block";
+      $("reload_button").style.display    = "inline-block";
+      setStatus("サインイン成功。予定を取得中...");
+      await fetchEvents();
+    };
+    if (gapi.client.getToken() === null) {
+      tokenClient.requestAccessToken({ prompt: "consent" });
+    } else {
+      tokenClient.requestAccessToken({ prompt: "" });
+    }
+  };
+
+  // ========= サインアウト =========
+  $("signout_button").onclick = () => {
+    const token = gapi.client.getToken();
+    if (token !== null) {
+      google.accounts.oauth2.revoke(token.access_token);
+      gapi.client.setToken("");
+    }
+    events = {};
+    renderAllCalendars();
+    $("authorize_button").style.display = "inline-block";
+    $("signout_button").style.display   = "none";
+    $("reload_button").style.display    = "none";
+    setStatus("サインアウトしました");
+  };
+
+  // ========= 予定再取得 =========
+  $("reload_button").onclick = async () => {
+    setStatus("予定を再取得中...");
+    await fetchEvents();
+  };
+
+  // ========= Google Calendar から予定を取得 =========
+  async function fetchEvents() {
+    try {
+      // 期間：先月1日 ～ 来月末日
+      const timeMin = new Date(baseYear, baseMonth - 1, 1, 0, 0, 0);
+      const timeMax = new Date(baseYear, baseMonth + 2, 0, 23, 59, 59); // 来月末日
+
+      const response = await gapi.client.calendar.events.list({
+        calendarId: "primary",
+        timeMin: timeMin.toISOString(),
+        timeMax: timeMax.toISOString(),
+        showDeleted: false,
+        singleEvents: true,
+        orderBy: "startTime",
+        maxResults: 500,
+      });
+
+      events = {};
+      const items = response.result.items || [];
+      items.forEach(ev => {
+        const summary = ev.summary || "(無題)";
+        let key, time = "", allDay = false;
+        if (ev.start.date) {
+          // 終日イベント
+          allDay = true;
+          // 終日イベントは end.date が「翌日」なので、開始日のみキーとして使用
+          // 複数日にまたがる場合は全日に登録
+          const start = new Date(ev.start.date + "T00:00:00");
+          const end   = new Date(ev.end.date   + "T00:00:00");
+          for (let d = new Date(start); d < end; d.setDate(d.getDate()+1)) {
+            const k = dateKey(d.getFullYear(), d.getMonth(), d.getDate());
+            if (!events[k]) events[k] = [];
+            events[k].push({ title: summary, time: "", allDay: true });
+          }
+          return;
+        } else {
+          const start = new Date(ev.start.dateTime);
+          time = pad(start.getHours()) + ":" + pad(start.getMinutes());
+          key = dateKey(start.getFullYear(), start.getMonth(), start.getDate());
+        }
+        if (!events[key]) events[key] = [];
+        events[key].push({ title: summary, time, allDay });
+      });
+
+      setStatus(`予定 ${items.length} 件を取得しました`);
+      renderAllCalendars();
+    } catch (err) {
+      console.error(err);
+      setStatus("取得エラー: " + (err.result?.error?.message || err.message || "unknown"));
+    }
+  }
+
+  // ========= カレンダー描画 =========
+  function buildCalendar(year, month, isCurrent) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "calendar" + (isCurrent ? " current" : "");
+
+    const title = document.createElement("h2");
+    title.textContent = `${year}年 ${month + 1}月`;
+    wrapper.appendChild(title);
+
+    const table = document.createElement("table");
+    const thead = document.createElement("thead");
+    const headRow = document.createElement("tr");
+    weekdays.forEach((w, i) => {
+      const th = document.createElement("th");
+      th.textContent = w;
+      if (i === 0) th.classList.add("sun");
+      if (i === 6) th.classList.add("sat");
+      headRow.appendChild(th);
+    });
+    thead.appendChild(headRow);
+    table.appendChild(thead);
+
+    const tbody = document.createElement("tbody");
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    let day = 1;
+    for (let row = 0; row < 6; row++) {
+      const tr = document.createElement("tr");
+      let rowHasDate = false;
+      for (let col = 0; col < 7; col++) {
+        const td = document.createElement("td");
+        if ((row === 0 && col < firstDay) || day > daysInMonth) {
+          td.classList.add("empty");
+        } else {
+          rowHasDate = true;
+          if (col === 0) td.classList.add("sun");
+          if (col === 6) td.classList.add("sat");
+
+          if (year === today.getFullYear() &&
+              month === today.getMonth() &&
+              day === today.getDate()) {
+            td.classList.add("today");
+          }
+
+          const numDiv = document.createElement("div");
+          numDiv.className = "date-num";
+          numDiv.textContent = day;
+          td.appendChild(numDiv);
+
+          const evWrap = document.createElement("div");
+          evWrap.className = "events";
+          const key = dateKey(year, month, day);
+          if (events[key]) {
+            events[key].forEach(ev => {
+              const item = document.createElement("div");
+              item.className = "event-item" + (ev.allDay ? " allday" : "");
+              const label = (ev.time ? ev.time + " " : "") + ev.title;
+              item.title = label;
+              item.textContent = label;
+              evWrap.appendChild(item);
+            });
+          }
+          td.appendChild(evWrap);
+
+          day++;
+        }
+        tr.appendChild(td);
+      }
+      tbody.appendChild(tr);
+      if (!rowHasDate && day > daysInMonth) break;
+    }
+    table.appendChild(tbody);
+    wrapper.appendChild(table);
+    return wrapper;
+  }
+
+  function renderAllCalendars() {
+    const container = $("calendarContainer");
+    container.innerHTML = "";
+    const months = [
+      { y: baseYear, m: baseMonth - 1, current: false },
+      { y: baseYear, m: baseMonth,     current: true  },
+      { y: baseYear, m: baseMonth + 1, current: false },
+    ];
+    months.forEach(({y, m, current}) => {
+      const d = new Date(y, m, 1);
+      container.appendChild(buildCalendar(d.getFullYear(), d.getMonth(), current));
+    });
+    $("footerNote").textContent =
+      `本日: ${today.getFullYear()}年${today.getMonth()+1}月${today.getDate()}日 (${weekdays[today.getDay()]})`;
+  }
+</script>
+</body>
+</html>
